@@ -12,7 +12,25 @@
 ARG BASE_IMAGE=openenv-base:latest
 FROM ${BASE_IMAGE}
 
-# Install smolagents for code execution
+# Install Julia using juliaup (official installer - more reliable in Docker)
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install juliaup and Julia
+RUN curl -fsSL https://install.julialang.org | sh -s -- --yes --default-channel 1.10
+
+# Add Julia to PATH
+ENV PATH="/root/.juliaup/bin:${PATH}"
+
+# Verify Julia installation
+RUN julia --version
+
+# Precompile commonly used Julia packages (Test is built-in, but precompile it)
+RUN julia -e 'using Test; println("Julia Test module ready")'
+
+# Install smolagents for Python code execution utilities
 RUN pip install --no-cache-dir smolagents
 
 # Copy only what's needed for the Julia environment
