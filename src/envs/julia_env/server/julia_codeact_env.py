@@ -35,10 +35,10 @@ class JuliaCodeActEnv(Environment):
         self._executor = JuliaExecutor()
         self._state = JuliaState()
 
-    def reset(self) -> Observation:
+    def reset(self) -> JuliaObservation:
         """
         Reset environment for a fresh Julia execution session.
-        Returns an empty CodeObservation with exit_code=0.
+        Returns an empty JuliaObservation with exit_code=0.
         """
         self._state = JuliaState(episode_id=str(uuid.uuid4()), step_count=0)
         self._state.last_exit_code = 0
