@@ -1,4 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) Yogesh Singla and affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
@@ -24,7 +24,6 @@ class JuliaAction(Action):
     
     Attributes:
         code: Julia code to execute (can include tests)
-        timeout: Maximum execution time in seconds
     """
     code: str
 
