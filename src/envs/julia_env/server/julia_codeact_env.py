@@ -134,17 +134,36 @@ class JuliaCodeActEnv(Environment):
             return passed, failed
         
         # Method 2: Look for Test Summary table
-        # Pattern: "Test Summary:      | Pass  Fail  Total  Time"
-        #          "Add function Tests |    1     1      2  1.5s"
+        # Two possible formats:
+        # With failures: "Test Summary:      | Pass  Fail  Total  Time"
+        #                "Add function Tests |    3     1      4  0.5s"
+        # No failures:   "Test Summary:      | Pass  Total  Time"
+        #                "Add function Tests |    1      1  0.0s"
         summary_lines = output.split('\n')
         for i, line in enumerate(summary_lines):
             if 'Test Summary:' in line and i + 1 < len(summary_lines):
+                header_line = line
                 next_line = summary_lines[i + 1]
-                numbers = re.findall(r'\|\s*(\d+)\s+(\d+)\s+(\d+)', next_line)
-                if numbers:
-                    passed = int(numbers[0][0])
-                    failed = int(numbers[0][1])
-                    return passed, failed
+                
+                # Check if "Fail" column exists in header
+                has_fail_column = 'Fail' in header_line
+                
+                if has_fail_column:
+                    # Pattern: Pass  Fail  Total (3 numbers)
+                    numbers = re.findall(r'\|\s*(\d+)\s+(\d+)\s+(\d+)', next_line)
+                    if numbers:
+                        passed = int(numbers[0][0])
+                        failed = int(numbers[0][1])
+                        # total = int(numbers[0][2])
+                        return passed, failed
+                else:
+                    # Pattern: Pass  Total (2 numbers) - no failures!
+                    numbers = re.findall(r'\|\s*(\d+)\s+(\d+)', next_line)
+                    if numbers:
+                        passed = int(numbers[0][0])
+                        failed = 0  # No fail column means 0 failures
+                        # total = int(numbers[0][1])
+                        return passed, failed
         
         return passed, failed
 
