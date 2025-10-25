@@ -6,6 +6,7 @@ It executes Julia code using JuliaExecutor, captures output,
 tracks the last exit code, and returns a JuliaObservation.
 """
 
+import re
 import uuid
 
 from core.env_server import Environment
@@ -57,7 +58,7 @@ class JuliaCodeActEnv(Environment):
             tests_failed=0
         )
 
-        observation = self.transform(observation)
+        observation = self._apply_transform(observation)
         return observation
         
 
@@ -71,25 +72,116 @@ class JuliaCodeActEnv(Environment):
         # Execute the code using JuliaExecutor
         result = self._executor.run(action.code)
 
+        # Parse test results
+        tests_passed, tests_failed = self._parse_test_results(result.stdout, result.stderr)
+
+        # Calculate reward
+        reward = self._calculate_reward(result.exit_code, tests_passed, tests_failed)
+
         # Update environment state
         self._state.step_count += 1
         self._state.last_exit_code = result.exit_code
+        self._state.total_tests_passed = tests_passed
+        self._state.total_tests_failed = tests_failed
 
         # Build observation
         observation = JuliaObservation(
             stdout=result.stdout,
             stderr=result.stderr,
             exit_code=result.exit_code,
-            reward=0.0,
+            reward=reward,
             metadata={"last_code": action.code},
-            tests_passed=0,
-            tests_failed=0
+            tests_passed=tests_passed,
+            tests_failed=tests_failed
         )
 
         # Apply safety and quality transforms
-        observation = self.transform(observation)
+        observation = self._apply_transform(observation)
 
         return observation
+
+    def _parse_test_results(self, stdout: str, stderr: str) -> tuple[int, int]:
+        """
+        Parse Julia test output to count passed/failed tests.
+        
+        Julia's Test module outputs results like:
+        "Test Summary:      | Pass  Fail  Total  Time"
+        "Add function Tests |    1     1      2  1.5s"
+        
+        Also checks error messages:
+        "Some tests did not pass: 1 passed, 1 failed, 0 errored, 0 broken."
+        
+        Args:
+            stdout: Standard output from Julia execution
+            stderr: Standard error from Julia execution
+            
+        Returns:
+            Tuple of (tests_passed, tests_failed)
+        """
+        # Combine stdout and stderr for analysis
+        passed = 0
+        failed = 0
+        output = stdout + "\n" + stderr
+        
+        # Method 1: Look for "Some tests did not pass" error message
+        # Pattern: "Some tests did not pass: X passed, Y failed, Z errored, W broken."
+        error_pattern = r"Some tests did not pass:\s*(\d+)\s+passed,\s*(\d+)\s+failed"
+        match = re.search(error_pattern, output)
+        
+        if match:
+            passed = int(match.group(1))
+            failed = int(match.group(2))
+            return passed, failed
+        
+        # Method 2: Look for Test Summary table
+        # Pattern: "Test Summary:      | Pass  Fail  Total  Time"
+        #          "Add function Tests |    1     1      2  1.5s"
+        summary_lines = output.split('\n')
+        for i, line in enumerate(summary_lines):
+            if 'Test Summary:' in line and i + 1 < len(summary_lines):
+                next_line = summary_lines[i + 1]
+                numbers = re.findall(r'\|\s*(\d+)\s+(\d+)\s+(\d+)', next_line)
+                if numbers:
+                    passed = int(numbers[0][0])
+                    failed = int(numbers[0][1])
+                    return passed, failed
+        
+        return passed, failed
+
+    def _calculate_reward(self, exit_code: int, tests_passed: int, tests_failed: int) -> float:
+        """
+        Calculate reward based on execution results.
+        
+        Reward structure:
+        - Failed execution (exit != 0): -0.5
+        - Clean execution (exit 0): +0.2
+        - Each test passed: +0.3
+        - Each test failed: -0.2
+        - All tests passed (>0): +0.5 bonus
+        
+        Args:
+            exit_code: Process exit code
+            tests_passed: Number of tests passed
+            tests_failed: Number of tests failed
+            
+        Returns:
+            Reward value (float)
+        """
+        reward = 0.0
+        
+        if exit_code != 0:
+            return -0.5
+        
+        reward += 0.2
+
+        total_tests = tests_passed + tests_failed
+        
+        reward += 0.3 * (tests_passed / total_tests) - 0.2 * (tests_failed / total_tests)
+
+        if tests_passed == total_tests:
+            reward += 0.5
+        
+        return reward
 
     @property
     def state(self) -> JuliaState:
