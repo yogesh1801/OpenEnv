@@ -11,6 +11,8 @@ import uuid
 from core.env_server import Environment
 from core.tools import JuliaExecutor
 from ..models import JuliaAction, JuliaObservation, JuliaState
+from .julia_transforms import create_safe_julia_transform
+
 
 class JuliaCodeActEnv(Environment):
     """
@@ -34,6 +36,7 @@ class JuliaCodeActEnv(Environment):
         """Initialize the Julia Code Act Environment."""
         self._executor = JuliaExecutor()
         self._state = JuliaState()
+        self.transform = create_safe_julia_transform()
 
     def reset(self) -> JuliaObservation:
         """
@@ -45,12 +48,16 @@ class JuliaCodeActEnv(Environment):
         self._executor = JuliaExecutor()
 
         observation = JuliaObservation(
-            stdout="", 
-            stderr="", 
+            stdout="",
+            stderr="",
             exit_code=0,
+            reward=0.0,
+            metadata={"last_code": ""},
             tests_passed=0,
-            tests_failed=0,
-            )
+            tests_failed=0
+        )
+
+        observation = self.transform(observation)
         return observation
         
 
@@ -73,7 +80,14 @@ class JuliaCodeActEnv(Environment):
             stdout=result.stdout,
             stderr=result.stderr,
             exit_code=result.exit_code,
+            reward=0.0,
+            metadata={"last_code": action.code},
+            tests_passed=0,
+            tests_failed=0
         )
+
+        # Apply safety and quality transforms
+        observation = self.transform(observation)
 
         return observation
 
