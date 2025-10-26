@@ -23,9 +23,11 @@ class JuliaAction(Action):
     Action for the Julia environment - code to execute.
     
     Attributes:
-        code: Julia code to execute (can include tests)
+        core_code: Core Julia code to execute
+        test_code: Test code to execute
     """
-    code: str
+    core_code: str
+    test_code: str
 
 @dataclass(kw_only=True)
 class JuliaObservation(Observation):
@@ -39,12 +41,14 @@ class JuliaObservation(Observation):
         execution_time: Time taken to execute in seconds
         tests_passed: Number of tests passed (if tests were run)
         tests_failed: Number of tests failed (if tests were run)
+        code_compiles: Whether the core code compiled/executed successfully
     """
     stdout: str = ""
     stderr: str = ""
     exit_code: int = 0
     tests_passed: int = 0
     tests_failed: int = 0
+    code_compiles: bool = True
 
 
 @dataclass
@@ -60,6 +64,7 @@ class JuliaState(State):
         total_tests_failed: Cumulative tests failed in episode
     """
     last_exit_code: int = 0
+    last_code_compiles: bool = True
     total_tests_passed: int = 0
     total_tests_failed: int = 0
 

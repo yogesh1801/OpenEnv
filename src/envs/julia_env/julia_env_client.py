@@ -65,7 +65,8 @@ class JuliaEnv(HTTPEnvClient[JuliaAction, JuliaObservation]):
             Dictionary representation suitable for JSON encoding
         """
         return {
-            "code": action.code
+            "core_code": action.core_code,
+            "test_code": action.test_code
         }
 
     def _parse_result(self, payload: Dict) -> StepResult[JuliaObservation]:
@@ -85,8 +86,7 @@ class JuliaEnv(HTTPEnvClient[JuliaAction, JuliaObservation]):
             exit_code=obs_data.get("exit_code", 0),
             tests_passed=obs_data.get("tests_passed", 0),
             tests_failed=obs_data.get("tests_failed", 0),
-            done=payload.get("done", False),
-            reward=payload.get("reward"),
+            code_compiles=obs_data.get("code_compiles", True),
             metadata=obs_data.get("metadata", {}),
         )
         
@@ -110,6 +110,7 @@ class JuliaEnv(HTTPEnvClient[JuliaAction, JuliaObservation]):
             episode_id=payload.get("episode_id"),
             step_count=payload.get("step_count", 0),
             last_exit_code=payload.get("last_exit_code", 0),
+            last_code_compiles=payload.get("last_code_compiles", True),
             total_tests_passed=payload.get("total_tests_passed", 0),
             total_tests_failed=payload.get("total_tests_failed", 0),
         )

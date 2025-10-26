@@ -46,6 +46,7 @@ class JuliaCodeActEnv(Environment):
         """
         self._state = JuliaState(episode_id=str(uuid.uuid4()), step_count=0)
         self._state.last_exit_code = 0
+        self._state.last_code_compiles = True
         self._executor = JuliaExecutor()
 
         observation = JuliaObservation(
@@ -53,9 +54,13 @@ class JuliaCodeActEnv(Environment):
             stderr="",
             exit_code=0,
             reward=0.0,
-            metadata={"last_code": ""},
+            metadata={
+                "core_code": "",
+                "test_code": ""
+            },
             tests_passed=0,
-            tests_failed=0
+            tests_failed=0,
+            code_compiles=True
         )
 
         observation = self._apply_transform(observation)
@@ -65,34 +70,48 @@ class JuliaCodeActEnv(Environment):
     def step(self, action: JuliaAction) -> JuliaObservation:
         """
         Execute Julia code and return the result as JuliaObservation.
+        
+        Two-stage execution:
+        1. Run core_code only → check if it compiles/executes
+        2. Run core_code + test_code → get test results
         """
         if not isinstance(action, JuliaAction):
             raise ValueError(f"Expected JuliaAction, got {type(action)}")
 
-        # Execute the code using JuliaExecutor
-        result = self._executor.run(action.code)
+        # Stage 1: Execute core_code only to check compilation
+        core_result = self._executor.run(action.core_code)
+        code_compiles = core_result.exit_code == 0
+        
+        # Stage 2: Execute core_code + test_code to get test results
+        combined_code = action.core_code + "\n\n" + action.test_code
+        full_result = self._executor.run(combined_code)
+        
+        # Parse test results from combined execution
+        tests_passed, tests_failed = self._parse_test_results(full_result.stdout, full_result.stderr)
 
-        # Parse test results
-        tests_passed, tests_failed = self._parse_test_results(result.stdout, result.stderr)
-
-        # Calculate reward
-        reward = self._calculate_reward(result.exit_code, tests_passed, tests_failed)
+        # Calculate reward based on compilation and test results
+        reward = self._calculate_reward(code_compiles, tests_passed, tests_failed)
 
         # Update environment state
         self._state.step_count += 1
-        self._state.last_exit_code = result.exit_code
+        self._state.last_exit_code = full_result.exit_code
+        self._state.last_code_compiles = code_compiles
         self._state.total_tests_passed = tests_passed
         self._state.total_tests_failed = tests_failed
 
-        # Build observation
+        # Build observation (use full_result output, but code_compiles flag from core)
         observation = JuliaObservation(
-            stdout=result.stdout,
-            stderr=result.stderr,
-            exit_code=result.exit_code,
+            stdout=full_result.stdout,
+            stderr=full_result.stderr,
+            exit_code=full_result.exit_code,
             reward=reward,
-            metadata={"last_code": action.code},
+            metadata={
+                "core_code": action.core_code,
+                "test_code": action.test_code
+            },
             tests_passed=tests_passed,
-            tests_failed=tests_failed
+            tests_failed=tests_failed,
+            code_compiles=code_compiles
         )
 
         # Apply safety and quality transforms
@@ -154,32 +173,30 @@ class JuliaCodeActEnv(Environment):
                     if numbers:
                         passed = int(numbers[0][0])
                         failed = int(numbers[0][1])
-                        # total = int(numbers[0][2])
                         return passed, failed
                 else:
                     # Pattern: Pass  Total (2 numbers) - no failures!
                     numbers = re.findall(r'\|\s*(\d+)\s+(\d+)', next_line)
                     if numbers:
                         passed = int(numbers[0][0])
-                        failed = 0  # No fail column means 0 failures
-                        # total = int(numbers[0][1])
+                        failed = 0
                         return passed, failed
         
         return passed, failed
 
-    def _calculate_reward(self, exit_code: int, tests_passed: int, tests_failed: int) -> float:
+    def _calculate_reward(self, code_compiles: bool, tests_passed: int, tests_failed: int) -> float:
         """
         Calculate reward based on execution results.
         
         Reward structure:
-        - Failed execution (exit != 0): -0.5
-        - Clean execution (exit 0): +0.2
-        - Each test passed: +0.3
-        - Each test failed: -0.2
+        - Code doesn't compile: -0.5
+        - Code compiles: +0.5
+        - Each test passed: +0.3 per test (normalized by total)
+        - Each test failed: -0.2 per test (normalized by total)
         - All tests passed (>0): +0.5 bonus
         
         Args:
-            exit_code: Process exit code
+            code_compiles: Whether core code compiled/executed successfully
             tests_passed: Number of tests passed
             tests_failed: Number of tests failed
             
@@ -188,17 +205,18 @@ class JuliaCodeActEnv(Environment):
         """
         reward = 0.0
         
-        if exit_code != 0:
+        if not code_compiles:
             return -0.5
         
-        reward += 0.2
-
+        reward += 0.5
+        
         total_tests = tests_passed + tests_failed
         
-        reward += 0.3 * (tests_passed / total_tests) - 0.2 * (tests_failed / total_tests)
-
-        if tests_passed == total_tests:
-            reward += 0.5
+        if total_tests > 0:
+            reward += 0.3 * (tests_passed / total_tests) - 0.2 * (tests_failed / total_tests)
+            
+            if tests_passed == total_tests:
+                reward += 0.5
         
         return reward
 
