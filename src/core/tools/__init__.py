@@ -9,10 +9,12 @@
 from .git_server_client import GitServerClient, RepoInfo
 from .local_python_executor import PyExecutor
 from .local_julia_executor import JuliaExecutor
+from .local_r_executor import RExecutor
 
 __all__ = [
     "PyExecutor",
     "JuliaExecutor",
+    "RExecutor",
     "GitServerClient",
     "RepoInfo",
 ]
