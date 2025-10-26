@@ -199,36 +199,11 @@ class JuliaCodeActEnv(Environment):
 
         total_tests = tests_passed + tests_failed
 
-        # If no tests are found — discourage empty completions
-        if total_tests == 0:
-            return -2
-
-        # Perfect solution
         if tests_failed == 0 and tests_passed > 0:
-            reward += 6  # strong boost for perfect solutions
-            return min(reward, 10)
+            reward += 6 
+            return reward
 
-        # Partial success — scale based on success ratio
-        success_ratio = tests_passed * 100 // total_tests  # integer %
-        if success_ratio >= 90:
-            reward += 5
-        elif success_ratio >= 75:
-            reward += 3
-        elif success_ratio >= 50:
-            reward += 1
-        else:
-            reward -= 2  # mostly failed
-
-        # Consistency bonus for some passed tests even if not perfect
-        if tests_passed > 0 and tests_failed <= tests_passed // 2:
-            reward += 1
-
-        # Heavy penalty if tests mostly fail
-        if tests_failed > tests_passed:
-            reward -= 3
-
-        # Reward caps for stability
-        reward = max(-5, min(reward, 10))
+        reward += 6 * (tests_passed / total_tests) - 3 * (tests_failed / total_tests)
 
         return reward
 
