@@ -153,33 +153,74 @@ class JuliaCodeActEnv(Environment):
             return passed, failed
         
         # Method 2: Look for Test Summary table
-        # Two possible formats:
-        # With failures: "Test Summary:      | Pass  Fail  Total  Time"
-        #                "Add function Tests |    3     1      4  0.5s"
-        # No failures:   "Test Summary:      | Pass  Total  Time"
-        #                "Add function Tests |    1      1  0.0s"
+        # Multiple possible formats:
+        # All pass:     "Test Summary: | Pass  Total  Time"
+        #               "My Tests     |    3      3  0.5s"
+        # Some fail:    "Test Summary: | Pass  Fail  Total  Time"
+        #               "My Tests     |    2     1      3  0.5s"
+        # All error:    "Test Summary: | Error  Total  Time"
+        #               "My Tests     |     3      3  0.9s"
+        # Mixed:        "Test Summary: | Pass  Fail  Error  Total  Time"
+        #               "My Tests     |    1     1      1      3  0.5s"
         summary_lines = output.split('\n')
         for i, line in enumerate(summary_lines):
             if 'Test Summary:' in line and i + 1 < len(summary_lines):
                 header_line = line
                 next_line = summary_lines[i + 1]
                 
-                # Check if "Fail" column exists in header
-                has_fail_column = 'Fail' in header_line
+                # Determine which columns are present
+                has_pass = 'Pass' in header_line
+                has_fail = 'Fail' in header_line
+                has_error = 'Error' in header_line
                 
-                if has_fail_column:
-                    # Pattern: Pass  Fail  Total (3 numbers)
-                    numbers = re.findall(r'\|\s*(\d+)\s+(\d+)\s+(\d+)', next_line)
-                    if numbers:
-                        passed = int(numbers[0][0])
-                        failed = int(numbers[0][1])
+                # Extract all numbers from the line
+                all_numbers = re.findall(r'\d+', next_line)
+                if not all_numbers:
+                    continue
+                
+                # Last number is always Total, second to last is Time (skip it)
+                # Extract based on which columns exist
+                if has_pass and has_fail and has_error:
+                    # Pass  Fail  Error  Total  Time
+                    if len(all_numbers) >= 5:
+                        passed = int(all_numbers[0])
+                        failed = int(all_numbers[1]) + int(all_numbers[2])  # Fail + Error
                         return passed, failed
-                else:
-                    # Pattern: Pass  Total (2 numbers) - no failures!
-                    numbers = re.findall(r'\|\s*(\d+)\s+(\d+)', next_line)
-                    if numbers:
-                        passed = int(numbers[0][0])
+                elif has_pass and has_fail:
+                    # Pass  Fail  Total  Time
+                    if len(all_numbers) >= 4:
+                        passed = int(all_numbers[0])
+                        failed = int(all_numbers[1])
+                        return passed, failed
+                elif has_pass and has_error:
+                    # Pass  Error  Total  Time
+                    if len(all_numbers) >= 4:
+                        passed = int(all_numbers[0])
+                        failed = int(all_numbers[1])  # Treat errors as failures
+                        return passed, failed
+                elif has_fail and has_error:
+                    # Fail  Error  Total  Time (no passes)
+                    if len(all_numbers) >= 4:
+                        passed = 0
+                        failed = int(all_numbers[0]) + int(all_numbers[1])
+                        return passed, failed
+                elif has_pass:
+                    # Pass  Total  Time (no failures/errors)
+                    if len(all_numbers) >= 3:
+                        passed = int(all_numbers[0])
                         failed = 0
+                        return passed, failed
+                elif has_error:
+                    # Error  Total  Time (all errors, no passes)
+                    if len(all_numbers) >= 3:
+                        passed = 0
+                        failed = int(all_numbers[0])  # Treat all errors as failures
+                        return passed, failed
+                elif has_fail:
+                    # Fail  Total  Time (all failures, no passes)
+                    if len(all_numbers) >= 3:
+                        passed = 0
+                        failed = int(all_numbers[0])
                         return passed, failed
         
         return passed, failed
