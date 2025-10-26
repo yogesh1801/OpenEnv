@@ -9,10 +9,12 @@
 from .git_server_client import GitServerClient, RepoInfo
 from .local_python_executor import PyExecutor
 from .local_julia_executor import JuliaExecutor
+from .local_go_executor import GoExecutor
 
 __all__ = [
     "PyExecutor",
     "JuliaExecutor",
+    "GoExecutor",
     "GitServerClient",
     "RepoInfo",
 ]
