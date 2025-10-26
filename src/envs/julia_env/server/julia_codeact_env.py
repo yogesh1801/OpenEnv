@@ -237,15 +237,13 @@ class JuliaCodeActEnv(Environment):
         if not code_compiles:
             return -3
 
-        reward = 2  # base reward for successful compilation
-
-        total_tests = tests_passed + tests_failed
+        reward = 1
 
         if tests_failed == 0 and tests_passed > 0:
             reward += 6 
             return reward
 
-        reward += 6 * (tests_passed / total_tests) - 3 * (tests_failed / total_tests)
+        reward += 3 * tests_passed - 1 * tests_failed
 
         return reward
 

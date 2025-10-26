@@ -16,7 +16,7 @@ from ..models import JuliaObservation
 class JuliaSafetyTransform(Transform):
     """Detects dangerous Julia operations and penalizes them with a negative reward."""
 
-    def __init__(self, penalty: float = -1.0):
+    def __init__(self, penalty: float = -3.0):
         self.penalty = penalty
         self.dangerous_patterns = [
             r"run\(",
@@ -57,7 +57,7 @@ class JuliaSafetyTransform(Transform):
 class JuliaQualityTransform(Transform):
     """Evaluates and rewards Julia code quality."""
 
-    def __init__(self, concise_bonus=0.1, max_length_threshold=120):
+    def __init__(self, concise_bonus=1, max_length_threshold=120):
         self.concise_bonus = concise_bonus
         self.max_length_threshold = max_length_threshold
 
