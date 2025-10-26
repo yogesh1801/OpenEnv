@@ -144,13 +144,14 @@ class JuliaCodeActEnv(Environment):
         
         # Method 1: Look for "Some tests did not pass" error message
         # Pattern: "Some tests did not pass: X passed, Y failed, Z errored, W broken."
-        error_pattern = r"Some tests did not pass:\s*(\d+)\s+passed,\s*(\d+)\s+failed"
+        error_pattern = r"Some tests did not pass:\s*(\d+)\s+passed,\s*(\d+)\s+failed,\s*(\d+)\s+errored"
         match = re.search(error_pattern, output)
         
         if match:
             passed = int(match.group(1))
             failed = int(match.group(2))
-            return passed, failed
+            errored = int(match.group(3))
+            return passed, failed + errored  # Treat errors as failures
         
         # Method 2: Look for Test Summary table
         # Multiple possible formats:
