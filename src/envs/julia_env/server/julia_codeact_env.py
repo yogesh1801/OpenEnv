@@ -184,41 +184,54 @@ class JuliaCodeActEnv(Environment):
         
         return passed, failed
 
-    def _calculate_reward(self, code_compiles: bool, tests_passed: int, tests_failed: int) -> float:
+    def _calculate_reward(self, code_compiles: bool, tests_passed: int, tests_failed: int) -> int:
         """
-        Calculate reward based on execution results.
-        
-        Reward structure:
-        - Code doesn't compile: -0.5
-        - Code compiles: +0.5
-        - Each test passed: +0.3 per test (normalized by total)
-        - Each test failed: -0.2 per test (normalized by total)
-        - All tests passed (>0): +0.5 bonus
-        
-        Args:
-            code_compiles: Whether core code compiled/executed successfully
-            tests_passed: Number of tests passed
-            tests_failed: Number of tests failed
-            
-        Returns:
-            Reward value (float)
+        Optimized integer reward for Julia GRPO.
+        Strong signal shaping: rewards correctness, penalizes instability,
+        and gives higher incentive for near-perfect results.
         """
-        reward = 0.0
-        
+
+        # Code doesn't compile — immediate strong penalty
         if not code_compiles:
-            return -0.5
-        
-        reward += 0.5
-        
+            return -3
+
+        reward = 2  # base reward for successful compilation
+
         total_tests = tests_passed + tests_failed
-        
-        if total_tests > 0:
-            reward += 0.3 * (tests_passed / total_tests) - 0.2 * (tests_failed / total_tests)
-            
-            if tests_passed == total_tests:
-                reward += 0.5
-        
+
+        # If no tests are found — discourage empty completions
+        if total_tests == 0:
+            return -2
+
+        # Perfect solution
+        if tests_failed == 0 and tests_passed > 0:
+            reward += 6  # strong boost for perfect solutions
+            return min(reward, 10)
+
+        # Partial success — scale based on success ratio
+        success_ratio = tests_passed * 100 // total_tests  # integer %
+        if success_ratio >= 90:
+            reward += 5
+        elif success_ratio >= 75:
+            reward += 3
+        elif success_ratio >= 50:
+            reward += 1
+        else:
+            reward -= 2  # mostly failed
+
+        # Consistency bonus for some passed tests even if not perfect
+        if tests_passed > 0 and tests_failed <= tests_passed // 2:
+            reward += 1
+
+        # Heavy penalty if tests mostly fail
+        if tests_failed > tests_passed:
+            reward -= 3
+
+        # Reward caps for stability
+        reward = max(-5, min(reward, 10))
+
         return reward
+
 
     @property
     def state(self) -> JuliaState:
