@@ -239,11 +239,10 @@ class JuliaCodeActEnv(Environment):
 
         reward = 1
 
-        if tests_failed == 0 and tests_passed > 0:
-            reward += 6 
-            return reward
-
         reward += 3 * tests_passed - 1 * tests_failed
+
+        if tests_failed == 0 and tests_passed > 0:
+            reward += 2
 
         return reward
 
