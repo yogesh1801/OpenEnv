@@ -23,27 +23,29 @@ class RExecutor:
     """
     Executor for running R code in a subprocess.
     
-    This class provides a simple interface to execute R code in isolation
-    and capture the results including stdout, stderr, and exit code.
+    This class provides two execution modes:
+    1. run() - Basic code execution (compilation/syntax check)
+       Executes: Rscript code.R
+       
+    2. run_with_tests() - Execute code with testthat tests
+       Executes: Rscript -e "source('core.R'); <test_code>"
     
     Example:
         >>> executor = RExecutor()
-        >>> result = executor.run('print("Hello, R!")')
-        >>> print(result.stdout)  # "[1] \"Hello, R!\"\n"
-        >>> print(result.exit_code)  # 0
-        >>>
-        >>> # With tests
-        >>> code = '''
-        ... add <- function(a, b) {
-        ...     return(a + b)
-        ... }
-        ... 
+        >>> 
+        >>> # Stage 1: Check if code compiles/runs
+        >>> result = executor.run('add <- function(a, b) { a + b }')
+        >>> print(result.exit_code)  # 0 means it compiles
+        >>> 
+        >>> # Stage 2: Run with tests using Rscript -e
+        >>> core = 'add <- function(a, b) { a + b }'
+        >>> tests = '''
         ... library(testthat)
-        ... test_that("add function works", {
+        ... test_that("add works", {
         ...     expect_equal(add(2, 3), 5)
         ... })
         ... '''
-        >>> result = executor.run(code)
+        >>> result = executor.run_with_tests(core, tests)
         >>> print(result.exit_code)  # 0
     """
     
@@ -58,7 +60,10 @@ class RExecutor:
     
     def run(self, code: str) -> CodeExecResult:
         """
-        Execute R code and return the result.
+        Execute R code and return the result (basic execution).
+        
+        This is used for Stage 1: Compilation/Syntax Check
+        Internally runs: Rscript code.R
         
         Args:
             code: R code string to execute
@@ -72,12 +77,115 @@ class RExecutor:
             >>> print(result.stdout)  # "[1] 8\n"
             >>> print(result.exit_code)  # 0
             >>>
-            >>> # Error handling
-            >>> result = executor.run("stop('error message')")
-            >>> print(result.exit_code)  # 1
-            >>> print(result.stderr)  # Contains error message
+            >>> # Check if code compiles
+            >>> result = executor.run("add <- function(a, b) { a + b }")
+            >>> print(result.exit_code)  # 0 means it compiles
         """
-
+        return self._execute_rscript(code)
+    
+    def run_with_tests(self, core_code: str, test_code: str) -> CodeExecResult:
+        """
+        Execute R code with testthat tests.
+        
+        This is used for Stage 2: Test Execution
+        Saves core_code and test_code to separate files, then runs:
+        Rscript -e "source('core.R'); testthat::test_dir('.')"
+        
+        Args:
+            core_code: Main R code (function definitions, etc.)
+            test_code: Test code using testthat
+            
+        Returns:
+            CodeExecResult containing stdout, stderr, and exit_code
+            
+        Example:
+            >>> executor = RExecutor()
+            >>> core = '''
+            ... add <- function(a, b) {
+            ...     return(a + b)
+            ... }
+            ... '''
+            >>> tests = '''
+            ... library(testthat)
+            ... test_that("add works", {
+            ...     expect_equal(add(2, 3), 5)
+            ... })
+            ... '''
+            >>> result = executor.run_with_tests(core, tests)
+            >>> print(result.exit_code)  # 0 if tests pass
+        """
+        try:
+            # Create temporary files for core code and tests
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                suffix='.R',
+                delete=False,
+                encoding='utf-8'
+            ) as core_file:
+                core_file.write(core_code)
+                core_file_path = core_file.name
+            
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                suffix='_test.R',
+                delete=False,
+                encoding='utf-8'
+            ) as test_file:
+                test_file.write(test_code)
+                test_file_path = test_file.name
+            
+            try:
+                # Build the R command to source core code and run tests
+                # Equivalent to: Rscript -e "source('core.R'); <test_code>"
+                r_command = f"source('{core_file_path.replace(chr(92), '/')}'); {test_code}"
+                
+                result = subprocess.run(
+                    ['Rscript', '-e', r_command],
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout,
+                )
+                
+                return CodeExecResult(
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    exit_code=result.returncode,
+                )
+                
+            finally:
+                try:
+                    Path(core_file_path).unlink()
+                except:
+                    pass
+                try:
+                    Path(test_file_path).unlink()
+                except:
+                    pass
+                    
+        except subprocess.TimeoutExpired:
+            return CodeExecResult(
+                stdout="",
+                stderr=f"Execution timed out after {self.timeout} seconds",
+                exit_code=-1,
+            )
+            
+        except Exception as e:
+            return CodeExecResult(
+                stdout="",
+                stderr=f"Error executing R code with tests: {str(e)}",
+                exit_code=-1,
+            )
+    
+    def _execute_rscript(self, code: str) -> CodeExecResult:
+        """
+        Internal method to execute R code using Rscript.
+        
+        Args:
+            code: R code string to execute
+            
+        Returns:
+            CodeExecResult containing stdout, stderr, and exit_code
+        """
         try:
             with tempfile.NamedTemporaryFile(
                 mode='w',

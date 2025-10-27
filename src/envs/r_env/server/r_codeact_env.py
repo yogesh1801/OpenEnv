@@ -72,19 +72,22 @@ class RCodeActEnv(Environment):
         Execute R code and return the result as RObservation.
         
         Two-stage execution:
-        1. Run core_code only → check if it compiles/executes
-        2. Run core_code + test_code → get test results
+        1. Stage 1: Run core_code only (Rscript core.R)
+           → Check if it compiles/executes without errors
+        2. Stage 2: Run core_code + test_code (Rscript combined.R)
+           → Get test results from testthat
         """
         if not isinstance(action, RAction):
             raise ValueError(f"Expected RAction, got {type(action)}")
 
         # Stage 1: Execute core_code only to check compilation
+        # Equivalent to: Rscript core_code.R
         core_result = self._executor.run(action.core_code)
         code_compiles = core_result.exit_code == 0
         
         # Stage 2: Execute core_code + test_code to get test results
-        combined_code = action.core_code + "\n\n" + action.test_code
-        full_result = self._executor.run(combined_code)
+        # Equivalent to: Rscript -e "source('core.R'); <test_code>"
+        full_result = self._executor.run_with_tests(action.core_code, action.test_code)
         
         # Parse test results from combined execution
         tests_passed, tests_failed = self._parse_test_results(full_result.stdout, full_result.stderr)
@@ -123,13 +126,10 @@ class RCodeActEnv(Environment):
         """
         Parse R test output to count passed/failed tests.
         
-        R's testthat package outputs results like:
-        "Test passed 🎊"
-        "Test failed 😱"
+        R's testthat package outputs a summary line like:
+        "[ FAIL 2 | WARN 0 | SKIP 0 | PASS 2 ]"
         
-        Or with test_that:
-        "✔ | F W S  OK | Context"
-        "✔ |     0 | my_test"
+        This method extracts the FAIL and PASS counts from this summary box.
         
         Args:
             stdout: Standard output from R execution
@@ -138,13 +138,8 @@ class RCodeActEnv(Environment):
         Returns:
             Tuple of (tests_passed, tests_failed)
         """
-        # Combine stdout and stderr for analysis
-        passed = 0
-        failed = 0
         output = stdout + "\n" + stderr
         
-        # Method 1: Look for testthat summary line
-        # Pattern: "[ FAIL N | WARN W | SKIP S | PASS P ]"
         summary_pattern = r"\[\s*FAIL\s+(\d+)\s*\|\s*WARN\s+\d+\s*\|\s*SKIP\s+\d+\s*\|\s*PASS\s+(\d+)\s*\]"
         match = re.search(summary_pattern, output)
         
@@ -153,49 +148,7 @@ class RCodeActEnv(Environment):
             passed = int(match.group(2))
             return passed, failed
         
-        # Method 2: Look for individual test results
-        # Count "Test passed" messages
-        passed_matches = re.findall(r"Test passed", output, re.IGNORECASE)
-        passed = len(passed_matches)
-        
-        # Count "Test failed" or "Failure" messages
-        failed_matches = re.findall(r"(Test failed|Failure\s*\(|Error\s*\()", output, re.IGNORECASE)
-        failed = len(failed_matches)
-        
-        # Method 3: Look for testthat table format
-        # "✔ | F W S  OK | Context"
-        # "✔ |     0 | my_test"
-        # or
-        # "✖ |     1 | my_test"
-        table_lines = output.split('\n')
-        for line in table_lines:
-            # Look for lines with checkmark or X followed by numbers
-            check_match = re.search(r'[✔✓]\s*\|\s*(\d+)\s+\d+\s+\d+\s+(\d+)', line)
-            if check_match:
-                failed += int(check_match.group(1))
-                passed += int(check_match.group(2))
-                continue
-            
-            cross_match = re.search(r'[✖✗❌]\s*\|\s*(\d+)\s+\d+\s+\d+\s+(\d+)', line)
-            if cross_match:
-                failed += int(cross_match.group(1))
-                passed += int(cross_match.group(2))
-                continue
-        
-        # Method 4: expect_equal, expect_true etc. success/failure
-        # Count individual expect_* calls that passed (no error message follows)
-        expect_calls = re.findall(r'expect_\w+', output)
-        if expect_calls and passed == 0 and failed == 0:
-            # If we found expect calls but no other indicators, count errors
-            error_count = len(re.findall(r'Error\s*:', output))
-            if error_count > 0:
-                failed = error_count
-                passed = max(0, len(expect_calls) - error_count)
-            else:
-                # No errors means all passed
-                passed = len(expect_calls)
-        
-        return passed, failed
+        return 0, 0
 
     def _calculate_reward(self, code_compiles: bool, tests_passed: int, tests_failed: int) -> int:
         """
@@ -204,7 +157,6 @@ class RCodeActEnv(Environment):
         and gives higher incentive for near-perfect results.
         """
 
-        # Code doesn't compile — immediate strong penalty
         if not code_compiles:
             return -3
 
