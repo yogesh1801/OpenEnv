@@ -28,7 +28,8 @@ class RExecutor:
        Executes: Rscript code.R
        
     2. run_with_tests() - Execute code with testthat tests
-       Executes: Rscript -e "source('core.R'); <test_code>"
+       Combines core_code + test_code into one file, then executes:
+       Rscript -e "testthat::test_file('test.R')"
     
     Example:
         >>> executor = RExecutor()
@@ -37,7 +38,7 @@ class RExecutor:
         >>> result = executor.run('add <- function(a, b) { a + b }')
         >>> print(result.exit_code)  # 0 means it compiles
         >>> 
-        >>> # Stage 2: Run with tests using Rscript -e
+        >>> # Stage 2: Run with tests - combines into single file
         >>> core = 'add <- function(a, b) { a + b }'
         >>> tests = '''
         ... library(testthat)
@@ -88,8 +89,11 @@ class RExecutor:
         Execute R code with testthat tests.
         
         This is used for Stage 2: Test Execution
-        Saves core_code and test_code to separate files, then runs:
-        Rscript -e "source('core.R'); testthat::test_dir('.')"
+        Combines core_code and test_code into a single file, then runs:
+        Rscript -e "testthat::test_file('test_file.R')"
+        
+        This triggers testthat's formatted output with the summary box:
+        [ FAIL N | WARN W | SKIP S | PASS P ]
         
         Args:
             core_code: Main R code (function definitions, etc.)
@@ -115,29 +119,21 @@ class RExecutor:
             >>> print(result.exit_code)  # 0 if tests pass
         """
         try:
-            # Create temporary files for core code and tests
+            # Combine core code and test code into a single file
+            combined_code = core_code + "\n\n" + test_code
+            
             with tempfile.NamedTemporaryFile(
                 mode='w',
                 suffix='.R',
                 delete=False,
                 encoding='utf-8'
-            ) as core_file:
-                core_file.write(core_code)
-                core_file_path = core_file.name
-            
-            with tempfile.NamedTemporaryFile(
-                mode='w',
-                suffix='_test.R',
-                delete=False,
-                encoding='utf-8'
-            ) as test_file:
-                test_file.write(test_code)
-                test_file_path = test_file.name
+            ) as f:
+                f.write(combined_code)
+                test_file = f.name
             
             try:
-                # Build the R command to source core code and run tests
-                # Equivalent to: Rscript -e "source('core.R'); <test_code>"
-                r_command = f"source('{core_file_path.replace(chr(92), '/')}'); {test_code}"
+                test_file_normalized = test_file.replace('\\', '/')
+                r_command = f"testthat::test_file('{test_file_normalized}')"
                 
                 result = subprocess.run(
                     ['Rscript', '-e', r_command],
@@ -154,11 +150,7 @@ class RExecutor:
                 
             finally:
                 try:
-                    Path(core_file_path).unlink()
-                except:
-                    pass
-                try:
-                    Path(test_file_path).unlink()
+                    Path(test_file).unlink()
                 except:
                     pass
                     

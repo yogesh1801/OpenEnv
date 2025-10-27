@@ -86,7 +86,7 @@ class RCodeActEnv(Environment):
         code_compiles = core_result.exit_code == 0
         
         # Stage 2: Execute core_code + test_code to get test results
-        # Equivalent to: Rscript -e "source('core.R'); <test_code>"
+        # Combines both into single file and runs: Rscript -e "testthat::test_file('combined.R')"
         full_result = self._executor.run_with_tests(action.core_code, action.test_code)
         
         # Parse test results from combined execution
@@ -176,3 +176,4 @@ class RCodeActEnv(Environment):
         """Return current environment state."""
         return self._state
 
+    
