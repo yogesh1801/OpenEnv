@@ -126,10 +126,13 @@ class RCodeActEnv(Environment):
         """
         Parse R test output to count passed/failed tests.
         
-        R's testthat package outputs a summary line like:
-        "[ FAIL 2 | WARN 0 | SKIP 0 | PASS 2 ]"
+        R's testthat package outputs incremental summary lines as tests run:
+        [ FAIL 0 | WARN 0 | SKIP 0 | PASS 0 ]
+        [ FAIL 0 | WARN 0 | SKIP 0 | PASS 1 ]
+        [ FAIL 0 | WARN 0 | SKIP 0 | PASS 2 ]
+        [ FAIL 0 | WARN 0 | SKIP 0 | PASS 3 ] Done!
         
-        This method extracts the FAIL and PASS counts from this summary box.
+        This method extracts the FAIL and PASS counts from the LAST summary box.
         
         Args:
             stdout: Standard output from R execution
@@ -140,12 +143,16 @@ class RCodeActEnv(Environment):
         """
         output = stdout + "\n" + stderr
         
+        # Look for testthat summary boxes: [ FAIL N | WARN W | SKIP S | PASS P ]
+        # testthat outputs incremental counts, so we need to take the LAST one
         summary_pattern = r"\[\s*FAIL\s+(\d+)\s*\|\s*WARN\s+\d+\s*\|\s*SKIP\s+\d+\s*\|\s*PASS\s+(\d+)\s*\]"
-        match = re.search(summary_pattern, output)
+        matches = re.findall(summary_pattern, output)
         
-        if match:
-            failed = int(match.group(1))
-            passed = int(match.group(2))
+        if matches:
+            # Take the last match (final test count)
+            last_match = matches[-1]
+            failed = int(last_match[0])
+            passed = int(last_match[1])
             return passed, failed
         
         return 0, 0
