@@ -10,11 +10,13 @@ from .git_server_client import GitServerClient, RepoInfo
 from .local_python_executor import PyExecutor
 from .local_julia_executor import JuliaExecutor
 from .local_r_executor import RExecutor
+from .local_zig_executor import ZigExecutor
 
 __all__ = [
     "PyExecutor",
     "JuliaExecutor",
     "RExecutor",
+    "ZigExecutor",
     "GitServerClient",
     "RepoInfo",
 ]
