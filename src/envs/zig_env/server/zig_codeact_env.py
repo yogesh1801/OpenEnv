@@ -8,6 +8,7 @@ tracks the last exit code, and returns a ZigObservation.
 
 import re
 import uuid
+from typing import Tuple
 
 from core.env_server import Environment
 from core.tools import ZigExecutor
@@ -87,7 +88,7 @@ class ZigCodeActEnv(Environment):
         
         # Stage 2: Execute core_code + test_code to get test results
         combined_code = action.core_code + "\n\n" + action.test_code
-        full_result = self._executor.run(combined_code)
+        full_result = self._executor.run_with_tests(combined_code)
         
         # Parse test results from combined execution
         tests_passed, tests_failed = self._parse_test_results(full_result.stdout, full_result.stderr)
@@ -122,54 +123,48 @@ class ZigCodeActEnv(Environment):
 
         return observation
 
-    def _parse_test_results(self, stdout: str, stderr: str) -> tuple[int, int]:
+
+    def _parse_test_results(self, stdout: str, stderr: str) -> Tuple[int, int]:
         """
-        Parse Zig test output to count passed/failed tests.
+        Parse test results from Zig test output.
         
-        Zig's test runner outputs results like:
-        "All 3 tests passed."
-        or
-        "1 passed; 1 failed."
+        Zig test output format examples:
+        - Success: "All 3 tests passed."
+        - Failure: "2 passed; 0 skipped; 1 failed."
         
         Args:
-            stdout: Standard output from Zig execution
-            stderr: Standard error from Zig execution
+            stdout: Standard output from test execution
+            stderr: Standard error from test execution
             
         Returns:
-            Tuple of (tests_passed, tests_failed)
+            Tuple[int, int]: Number of tests passed and failed
         """
         # Combine stdout and stderr for analysis
-        passed = 0
-        failed = 0
-        output = stdout + "\n" + stderr
+        output = stderr if stderr else stdout
+        print(output)
         
-        # Method 1: Look for "All X tests passed"
-        all_pass_pattern = r"All (\d+) tests? passed"
-        match = re.search(all_pass_pattern, output)
-        if match:
-            passed = int(match.group(1))
-            failed = 0
-            return passed, failed
+        # First check for the success message "All X tests passed"
+        all_passed_match = re.search(r"All (\d+) tests passed", output)
+        if all_passed_match:
+            num_tests = int(all_passed_match.group(1))
+            return num_tests, 0
+        print(all_passed_match)
         
-        # Method 2: Look for "X passed; Y failed"
-        summary_pattern = r"(\d+) passed[;,]\s*(\d+) failed"
-        match = re.search(summary_pattern, output)
-        if match:
-            passed = int(match.group(1))
-            failed = int(match.group(2))
-            return passed, failed
+            
+        # If not all passed, look for the detailed results
+        detailed_match = re.search(r"(\d+) passed; \d+ skipped; (\d+) failed", output)
+        print(detailed_match)
+        if detailed_match:
+            return int(detailed_match.group(1)), int(detailed_match.group(2))
+            
+        # If no test results found, count OK vs FAIL in individual test results
+
+        passed = output.count('...OK')
+        failed = output.count('...FAIL')
         
-        # Method 3: Look for individual test results
-        # Zig outputs lines like:
-        # "Test [1/3] test_name... PASS"
-        # "Test [2/3] test_name... FAIL"
-        pass_count = len(re.findall(r"Test \[\d+/\d+\].*?PASS", output))
-        fail_count = len(re.findall(r"Test \[\d+/\d+\].*?FAIL", output))
-        
-        if pass_count > 0 or fail_count > 0:
-            return pass_count, fail_count
         
         return passed, failed
+
 
     def _calculate_reward(self, code_compiles: bool, tests_passed: int, tests_failed: int) -> int:
         """

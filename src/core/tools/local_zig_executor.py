@@ -57,7 +57,9 @@ class ZigExecutor:
     
     def run(self, code: str) -> CodeExecResult:
         """
-        Execute Zig code and return the result.
+        Execute Zig code and return the result (basic execution).
+        
+        This is used for Stage 1: Compilation/Basic Execution
         
         Args:
             code: Zig code string to execute
@@ -76,36 +78,21 @@ class ZigExecutor:
             >>> print(result.exit_code)  # 1
             >>> print(result.stderr)  # Contains error message
         """
-
         try:
-            # Create temporary directory for Zig project
             with tempfile.TemporaryDirectory() as tmpdir:
                 code_file = os.path.join(tmpdir, 'main.zig')
                 
-                # Write code to file
                 with open(code_file, 'w', encoding='utf-8') as f:
                     f.write(code)
                 
                 try:
-                    # First, try to run tests if they exist
-                    if 'test ' in code:
-                        # Run zig test
-                        result = subprocess.run(
-                            ['zig', 'test', code_file],
-                            capture_output=True,
-                            text=True,
-                            timeout=self.timeout,
-                            cwd=tmpdir,
-                        )
-                    else:
-                        # Run regular code (compile and run)
-                        result = subprocess.run(
-                            ['zig', 'run', code_file],
-                            capture_output=True,
-                            text=True,
-                            timeout=self.timeout,
-                            cwd=tmpdir,
-                        )
+                    result = subprocess.run(
+                        ['zig', 'build-obj', code_file],
+                        capture_output=True,
+                        text=True,
+                        timeout=self.timeout,
+                        cwd=tmpdir,
+                    )
                     
                     return CodeExecResult(
                         stdout=result.stdout,
@@ -124,6 +111,69 @@ class ZigExecutor:
             return CodeExecResult(
                 stdout="",
                 stderr=f"Error executing Zig code: {str(e)}",
+                exit_code=-1,
+            )
+            
+    def run_with_tests(self, code: str) -> CodeExecResult:
+        """
+        Execute Zig code with tests.
+        
+        This is used for Stage 2: Test Execution
+        Executes Zig code containing test blocks using 'zig test'
+        
+        Args:
+            code: Zig code string containing test blocks
+            
+        Returns:
+            CodeExecResult containing stdout, stderr, and exit_code
+            
+        Example:
+            >>> executor = ZigExecutor()
+            >>> code = '''
+            ... const std = @import("std");
+            ... fn add(a: i32, b: i32) i32 {
+            ...     return a + b;
+            ... }
+            ... test "add function" {
+            ...     try std.testing.expectEqual(@as(i32, 5), add(2, 3));
+            ... }
+            ... '''
+            >>> result = executor.run_with_tests(code)
+            >>> print(result.exit_code)  # 0 if tests pass
+        """
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                code_file = os.path.join(tmpdir, 'main.zig')
+                
+                with open(code_file, 'w', encoding='utf-8') as f:
+                    f.write(code)
+                
+                try:
+                    result = subprocess.run(
+                        ['zig', 'test', code_file],
+                        capture_output=True,
+                        text=True,
+                        timeout=self.timeout,
+                        cwd=tmpdir,
+                    )
+                    
+                    return CodeExecResult(
+                        stdout=result.stdout,
+                        stderr=result.stderr,
+                        exit_code=result.returncode,
+                    )
+                    
+                except subprocess.TimeoutExpired:
+                    return CodeExecResult(
+                        stdout="",
+                        stderr=f"Execution timed out after {self.timeout} seconds",
+                        exit_code=-1,
+                    )
+                    
+        except Exception as e:
+            return CodeExecResult(
+                stdout="",
+                stderr=f"Error executing Zig code with tests: {str(e)}",
                 exit_code=-1,
             )
 
