@@ -121,52 +121,20 @@ class RubyCodeActEnv(Environment):
 
     def _parse_test_results(self, stdout: str, stderr: str) -> tuple[int, int]:
         """
-        Parse Ruby Minitest output to count passed/failed tests.
-        
-        Minitest outputs results like:
-        "1 runs, 1 assertions, 0 failures, 0 errors, 0 skips"
-        or
-        "Finished in 0.001234s, 813.01 runs/s, 813.01 assertions/s."
-        "3 runs, 3 assertions, 1 failures, 0 errors, 0 skips"
-        
-        Args:
-            stdout: Standard output from Ruby execution
-            stderr: Standard error from Ruby execution
-            
-        Returns:
-            Tuple of (tests_passed, tests_failed)
+        Parse test results from Ruby Test::Unit output.
+        Returns tuple of (tests_passed, tests_failed).
         """
-        # Combine stdout and stderr for analysis
-        passed = 0
-        failed = 0
-        output = stdout + "\n" + stderr
+        pattern = r"(\d+) tests, \d+ assertions, (\d+) failures, \d+ errors, \d+ pendings, \d+ omissions, \d+ notifications"
         
-        # Method 1: Look for Minitest summary line
-        # Pattern: "X runs, Y assertions, Z failures, W errors, V skips"
-        summary_pattern = r"(\d+) runs?, \d+ assertions?, (\d+) failures?, (\d+) errors?, \d+ skips?"
-        match = re.search(summary_pattern, output)
-        
+        match = re.search(pattern, stdout)
         if match:
-            runs = int(match.group(1))
+            total_tests = int(match.group(1))
             failures = int(match.group(2))
-            errors = int(match.group(3))
+            passed = total_tests - failures
+            return passed, failures
             
-            # Total failures = failures + errors
-            failed = failures + errors
-            # Passed = runs - failed
-            passed = runs - failed
-            return passed, failed
+        return 0, 0  
         
-        # Method 2: Count individual test results markers
-        # Minitest uses "." for pass, "F" for failure, "E" for error
-        # But these are printed inline, so count them
-        pass_count = output.count(' . ')  # Passed tests often show as " . "
-        fail_count = output.count(' F ') + output.count(' E ')
-        
-        if pass_count > 0 or fail_count > 0:
-            return pass_count, fail_count
-        
-        return passed, failed
 
     def _calculate_reward(self, code_compiles: bool, tests_passed: int, tests_failed: int) -> int:
         """
